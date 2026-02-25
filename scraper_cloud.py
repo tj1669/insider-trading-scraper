@@ -4,6 +4,7 @@ INSIDER TRADING SCRAPER - CLOUD VERSION WITH EMAIL REPORTS
 Modified for PythonAnywhere.com deployment
 Uses alternative APIs to avoid 403 blocks
 Sends daily email reports with insider trading data
+ONLY REAL DATA - NO SAMPLE DATA
 """
 
 import os
@@ -16,9 +17,7 @@ from bs4 import BeautifulSoup
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# EMAIL CONFIGURATION (Set these before deploying)
-import os
-
+# EMAIL CONFIGURATION (Use environment variables)
 EMAIL_CONFIG = {
     'sender_email': os.getenv('SENDER_EMAIL', 'YOUR_EMAIL@gmail.com'),
     'sender_password': os.getenv('SENDER_PASSWORD', 'YOUR_APP_PASSWORD'),
@@ -26,7 +25,6 @@ EMAIL_CONFIG = {
     'smtp_server': 'smtp.gmail.com',
     'smtp_port': 587
 }
-
 
 # Realistic headers
 HEADERS = {
@@ -145,52 +143,6 @@ class InsiderTradingScraperCloud:
             print(f"❌ SEC EDGAR error: {str(e)}")
             return []
     
-    def get_sample_insider_data(self):
-        """Fallback: Return sample data when APIs are blocked"""
-        print("  Using sample insider data (APIs may be temporarily blocked)...")
-        
-        sample_trades = [
-            {
-                'source': 'Sample Data',
-                'ticker': 'NVDA',
-                'company_name': 'NVIDIA Corporation',
-                'trader': 'Jensen Huang',
-                'title': 'CEO',
-                'trade_type': 'buy',
-                'shares': '50,000',
-                'value': '$8.5M',
-                'filed_date': datetime.now().strftime('%Y-%m-%d'),
-                'actor_type': 'insider'
-            },
-            {
-                'source': 'Sample Data',
-                'ticker': 'TSLA',
-                'company_name': 'Tesla Inc',
-                'trader': 'Elon Musk',
-                'title': 'CEO',
-                'trade_type': 'sell',
-                'shares': '100,000',
-                'value': '$25.3M',
-                'filed_date': datetime.now().strftime('%Y-%m-%d'),
-                'actor_type': 'insider'
-            },
-            {
-                'source': 'Sample Data',
-                'ticker': 'MSFT',
-                'company_name': 'Microsoft Corporation',
-                'trader': 'Satya Nadella',
-                'title': 'CEO',
-                'trade_type': 'buy',
-                'shares': '25,000',
-                'value': '$9.2M',
-                'filed_date': datetime.now().strftime('%Y-%m-%d'),
-                'actor_type': 'insider'
-            }
-        ]
-        
-        print(f"✅ Using {len(sample_trades)} sample insider trades")
-        return sample_trades
-    
     def save_trades(self, trades):
         """Save trades to JSON file"""
         try:
@@ -245,6 +197,7 @@ class InsiderTradingScraperCloud:
                 .footer {{ margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666; font-size: 12px; }}
                 .warning {{ background: #fef3c7; padding: 12px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #f59e0b; }}
                 .header-row {{ background: #f0f0f0; font-weight: bold; }}
+                .no-data {{ background: #fee2e2; padding: 20px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #ef4444; text-align: center; }}
             </style>
         </head>
         <body>
@@ -273,62 +226,69 @@ class InsiderTradingScraperCloud:
                 </div>
         """
         
-        # Buy trades section
-        if buy_trades:
-            html_content += "<h2>💰 BUY TRADES</h2>"
-            html_content += "<table><tr class='header-row'><th>Ticker</th><th>Company</th><th>Trader</th><th>Shares</th><th>Value</th><th>Date</th></tr>"
-            for trade in buy_trades[:15]:
-                ticker = trade.get('ticker', 'N/A')
-                company = trade.get('company_name', 'N/A')[:30]
-                trader = trade.get('trader', 'N/A')[:25]
-                shares = trade.get('shares', 'N/A')
-                value = trade.get('value', 'N/A')
-                date = trade.get('filed_date', 'N/A')
-                source = trade.get('source', '')
-                html_content += f"""
-                <tr>
-                    <td><span class="ticker">{ticker}</span><br><span class="source">{source}</span></td>
-                    <td>{company}</td>
-                    <td>{trader}</td>
-                    <td>{shares}</td>
-                    <td>{value}</td>
-                    <td>{date}</td>
-                </tr>
-                """
-            html_content += "</table>"
-        
-        # Sell trades section
-        if sell_trades:
-            html_content += "<h2 class='sell'>📉 SELL TRADES</h2>"
-            html_content += "<table><tr class='header-row'><th>Ticker</th><th>Company</th><th>Trader</th><th>Shares</th><th>Value</th><th>Date</th></tr>"
-            for trade in sell_trades[:15]:
-                ticker = trade.get('ticker', 'N/A')
-                company = trade.get('company_name', 'N/A')[:30]
-                trader = trade.get('trader', 'N/A')[:25]
-                shares = trade.get('shares', 'N/A')
-                value = trade.get('value', 'N/A')
-                date = trade.get('filed_date', 'N/A')
-                source = trade.get('source', '')
-                html_content += f"""
-                <tr>
-                    <td><span class="ticker">{ticker}</span><br><span class="source">{source}</span></td>
-                    <td>{company}</td>
-                    <td>{trader}</td>
-                    <td>{shares}</td>
-                    <td>{value}</td>
-                    <td>{date}</td>
-                </tr>
-                """
-            html_content += "</table>"
-        
-        # If no real trades, show info
-        if not trades or len(trades) < 3:
+        # If no trades, show message
+        if not trades or len(trades) == 0:
             html_content += """
-            <div class="warning">
-                <strong>ℹ️ Limited data collection</strong>
-                <p>The scraper uses free public APIs that may have rate limits. Your daily reports will contain real insider trade data when APIs are available.</p>
-            </div>
+                <div class="no-data">
+                    <h3>⚠️ NO REAL DATA AVAILABLE TODAY</h3>
+                    <p>Public APIs (Yahoo Finance, SEC EDGAR) did not return any insider trading data today.</p>
+                    <p>This can happen due to:</p>
+                    <ul style="text-align: left; display: inline-block;">
+                        <li>APIs temporarily unavailable or rate-limited</li>
+                        <li>No insider trades reported today</li>
+                        <li>SEC EDGAR processing delays</li>
+                    </ul>
+                    <p><strong>No action taken.</strong> Retry tomorrow.</p>
+                </div>
             """
+        else:
+            # Buy trades section
+            if buy_trades:
+                html_content += "<h2>💰 BUY TRADES</h2>"
+                html_content += "<table><tr class='header-row'><th>Ticker</th><th>Company</th><th>Trader</th><th>Shares</th><th>Value</th><th>Date</th></tr>"
+                for trade in buy_trades[:15]:
+                    ticker = trade.get('ticker', 'N/A')
+                    company = trade.get('company_name', 'N/A')[:30]
+                    trader = trade.get('trader', 'N/A')[:25]
+                    shares = trade.get('shares', 'N/A')
+                    value = trade.get('value', 'N/A')
+                    date = trade.get('filed_date', 'N/A')
+                    source = trade.get('source', '')
+                    html_content += f"""
+                    <tr>
+                        <td><span class="ticker">{ticker}</span><br><span class="source">{source}</span></td>
+                        <td>{company}</td>
+                        <td>{trader}</td>
+                        <td>{shares}</td>
+                        <td>{value}</td>
+                        <td>{date}</td>
+                    </tr>
+                    """
+                html_content += "</table>"
+            
+            # Sell trades section
+            if sell_trades:
+                html_content += "<h2 class='sell'>📉 SELL TRADES</h2>"
+                html_content += "<table><tr class='header-row'><th>Ticker</th><th>Company</th><th>Trader</th><th>Shares</th><th>Value</th><th>Date</th></tr>"
+                for trade in sell_trades[:15]:
+                    ticker = trade.get('ticker', 'N/A')
+                    company = trade.get('company_name', 'N/A')[:30]
+                    trader = trade.get('trader', 'N/A')[:25]
+                    shares = trade.get('shares', 'N/A')
+                    value = trade.get('value', 'N/A')
+                    date = trade.get('filed_date', 'N/A')
+                    source = trade.get('source', '')
+                    html_content += f"""
+                    <tr>
+                        <td><span class="ticker">{ticker}</span><br><span class="source">{source}</span></td>
+                        <td>{company}</td>
+                        <td>{trader}</td>
+                        <td>{shares}</td>
+                        <td>{value}</td>
+                        <td>{date}</td>
+                    </tr>
+                    """
+                html_content += "</table>"
         
         html_content += """
                 <div class="footer">
@@ -371,7 +331,7 @@ class InsiderTradingScraperCloud:
             return False
     
     def run_scrape(self):
-        """Execute full scrape"""
+        """Execute full scrape - ONLY REAL DATA"""
         print("\n" + "=" * 80)
         print(f"🌐 INSIDER TRADING SCRAPE - {self.timestamp}")
         print("=" * 80)
@@ -387,11 +347,10 @@ class InsiderTradingScraperCloud:
             sec_trades = self.fetch_sec_filings_alternative()
             trades.extend(sec_trades)
         
-        # If still nothing, use sample data for demonstration
-        if len(trades) < 3:
-            print("\n📥 APIs temporarily limited, using sample data...")
-            sample = self.get_sample_insider_data()
-            trades.extend(sample)
+        # NO SAMPLE DATA - If APIs fail, send empty report
+        if len(trades) == 0:
+            print("\n⚠️ No real data available from APIs")
+            print("Sending email with 'no data' message...")
         
         # Save and send
         saved_trades = self.save_trades(trades)
@@ -413,5 +372,4 @@ def main():
     scraper.run_scrape()
 
 if __name__ == "__main__":
-
     main()
