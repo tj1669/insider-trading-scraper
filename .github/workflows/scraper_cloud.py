@@ -17,13 +17,16 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 # EMAIL CONFIGURATION (Set these before deploying)
+import os
+
 EMAIL_CONFIG = {
-    'sender_email': 'tj1669@gmail.com',
-    'sender_password': 'pdvr xemb leue shpx',
-    'recipient_email': 'tushar_jain@outlook.com',
+    'sender_email': os.getenv('SENDER_EMAIL', 'YOUR_EMAIL@gmail.com'),
+    'sender_password': os.getenv('SENDER_PASSWORD', 'YOUR_APP_PASSWORD'),
+    'recipient_email': os.getenv('RECIPIENT_EMAIL', 'YOUR_EMAIL@gmail.com'),
     'smtp_server': 'smtp.gmail.com',
     'smtp_port': 587
 }
+
 
 # Realistic headers
 HEADERS = {
@@ -410,4 +413,5 @@ def main():
     scraper.run_scrape()
 
 if __name__ == "__main__":
+
     main()
