@@ -28,4 +28,4 @@ jobs:
           SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
         run: |
-          python3 scraper_cloud.py
+          python3 ./scraper_cloud.py
