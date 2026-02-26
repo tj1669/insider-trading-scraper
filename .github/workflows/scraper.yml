@@ -9,27 +9,24 @@ on:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    
+
     steps:
-      - uses: actions/checkout@v3
-      
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-      
+
       - name: Install dependencies
         run: |
-          pip install requests beautifulsoup4
-      
+          pip install requests beautifulsoup4 yfinance pandas
+
       - name: Run scraper
         env:
           SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
           SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
         run: |
-          python3 ./scraper_cloud.py
-
-       - name: Install dependencies
-        run: |
-          pip install requests beautifulsoup4 yfinance pandas
+          python3 scraper_cloud.py
