@@ -2,7 +2,6 @@ name: Insider Trading Scraper
 
 on:
   schedule:
-    # Runs at 5 PM UTC (6 PM CET)
     - cron: '0 17 * * *'
   workflow_dispatch:
 
