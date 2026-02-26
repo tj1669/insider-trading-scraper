@@ -26,8 +26,10 @@ EMAIL_CONFIG = {
     'smtp_port': 587
 }
 
+# SEC API CONFIG
 SECAPI_KEY = os.getenv('SECAPI_KEY', '')
 SECAPI_ENDPOINT = "https://api.sec-api.io/insider-trading"
+
 
 class InsiderTradingScraperCloud:
     def __init__(self):
@@ -38,8 +40,8 @@ class InsiderTradingScraperCloud:
 
     def fetch_insider_trades_last_90d_secapi(self):
         """
-        Fetch insider trades for last 90 days via sec-api.io Insider Trading API.
-        One call for all tickers using query filter.
+        Fetch insider trades for last 90 days via sec-api.io Insider Trading API
+        using string-based query (Form 3/4/5 + ticker filter + date range).
         """
         if not SECAPI_KEY:
             print("❌ SECAPI_KEY not set. Skipping sec-api.io fetch.")
@@ -55,19 +57,19 @@ class InsiderTradingScraperCloud:
         today = datetime.utcnow().date()
         start_date = today - timedelta(days=90)
 
-        # sec-api.io uses a JSON query language. Example query:
-        # { "query": { "tradingSymbol": "NVDA", "filedAt": { "$gte": "...", "$lte": "..." } } } [web:23][web:96]
-        query = {
-            "query": {
-                "tradingSymbol": {"$in": tickers},
-                "filedAt": {
-                    "$gte": start_date.strftime("%Y-%m-%d"),
-                    "$lte": today.strftime("%Y-%m-%d")
-                },
-                "formType": {"$in": ["3", "4", "5"]}
-            },
+        # Build a sec-api.io query string:
+        # Example pattern: formType:(3 4 5) AND filedAt:[YYYY-MM-DD TO YYYY-MM-DD] AND issuer.tradingSymbol:(NVDA TSLA ...)
+        ticker_clause = " ".join(tickers)
+        query_string = (
+            f"formType:(3 4 5) "
+            f"AND filedAt:[{start_date.strftime('%Y-%m-%d')} TO {today.strftime('%Y-%m-%d')}] "
+            f"AND issuer.tradingSymbol:({ticker_clause})"
+        )
+
+        payload = {
+            "query": query_string,
             "from": 0,
-            "size": 200,  # adjust if you want more
+            "size": 200,
             "sort": [{"filedAt": {"order": "desc"}}]
         }
 
@@ -77,20 +79,20 @@ class InsiderTradingScraperCloud:
         }
 
         try:
-            resp = requests.post(SECAPI_ENDPOINT, headers=headers, data=json.dumps(query), timeout=25)
+            resp = requests.post(SECAPI_ENDPOINT, headers=headers, data=json.dumps(payload), timeout=25)
             if resp.status_code != 200:
                 print(f"❌ sec-api.io returned {resp.status_code}: {resp.text[:200]}")
                 return []
 
             data = resp.json()
             filings = data.get("filings", [])
+            if not filings:
+                print("⚠️ sec-api.io: no filings returned for query")
         except Exception as e:
             print(f"❌ sec-api.io error: {e}")
             return []
 
         all_trades = []
-
-        # Pre-load price caches per ticker for efficiency
         price_cache = {}
 
         for filing in filings:
@@ -112,26 +114,49 @@ class InsiderTradingScraperCloud:
                 else:
                     filed_date = ""
 
-                # Determine relationship / role from reporting owners [web:23][web:116]
+                # Prepare price history once per ticker
+                if ticker not in price_cache:
+                    try:
+                        t = yf.Ticker(ticker)
+                        price_hist = t.history(
+                            start=start_date,
+                            end=today + timedelta(days=1),
+                            auto_adjust=False
+                        )
+                        price_cache[ticker] = price_hist
+                    except Exception as e:
+                        print(f"  ⚠️ yfinance price error for {ticker}: {e}")
+                        price_cache[ticker] = pd.DataFrame()
+
+                price_hist = price_cache.get(ticker, pd.DataFrame())
+                latest_close = None
+                if not price_hist.empty:
+                    try:
+                        latest_close = float(price_hist["Close"].iloc[-1])
+                    except Exception:
+                        latest_close = None
+
                 for owner in reporting_owners:
                     owner_name = (owner.get("name") or owner.get("reportingOwnerName") or "").strip()
                     rel = owner.get("relationship", {}) or {}
-                    # relationship flags: isDirector, isOfficer, isTenPercentOwner, isOther [web:23]
+
                     roles = []
-                    if rel.get("isDirector"): roles.append("Director")
-                    if rel.get("isOfficer"): roles.append("Officer")
-                    if rel.get("isTenPercentOwner"): roles.append("10% Owner")
-                    if rel.get("isOther"): roles.append("Other")
+                    if rel.get("isDirector"):
+                        roles.append("Director")
+                    if rel.get("isOfficer"):
+                        roles.append("Officer")
+                    if rel.get("isTenPercentOwner"):
+                        roles.append("10% Owner")
+                    if rel.get("isOther"):
+                        roles.append("Other")
 
                     actor_role = ", ".join(roles) if roles else "Insider"
                     actor_type = "insider"
 
-                    # very rough politician detection based on "Other" text
                     other_text = str(rel.get("otherText") or "").lower()
                     if any(x in other_text for x in ["senator", "rep.", "representative", "congress", "mp", "parliament"]):
                         actor_type = "politician"
 
-                    # Collect transactions from non-derivative and derivative tables [web:23][web:116]
                     all_tx_tables = []
                     for entry in non_deriv:
                         txs = entry.get("transactions", []) or []
@@ -143,28 +168,6 @@ class InsiderTradingScraperCloud:
                     if not all_tx_tables:
                         continue
 
-                    # Prepare price history for this ticker (once)
-                    if ticker not in price_cache:
-                        try:
-                            t = yf.Ticker(ticker)
-                            price_hist = t.history(
-                                start=start_date,
-                                end=today + timedelta(days=1),
-                                auto_adjust=False
-                            )
-                            price_cache[ticker] = price_hist
-                        except Exception as e:
-                            print(f"  ⚠️ yfinance price error for {ticker}: {e}")
-                            price_cache[ticker] = pd.DataFrame()
-
-                    price_hist = price_cache.get(ticker, pd.DataFrame())
-                    latest_close = None
-                    if not price_hist.empty:
-                        try:
-                            latest_close = float(price_hist["Close"].iloc[-1])
-                        except Exception:
-                            latest_close = None
-
                     for tx in all_tx_tables:
                         try:
                             tx_date_raw = tx.get("transactionDate", {}) or {}
@@ -173,7 +176,6 @@ class InsiderTradingScraperCloud:
                             if tx_date_str:
                                 tx_date = datetime.strptime(tx_date_str[:10], "%Y-%m-%d").date()
 
-                            # Map transaction code to buy/sell [web:23][web:116]
                             code_raw = tx.get("transactionCoding", {}) or {}
                             code = (code_raw.get("transactionCode") or "").upper()
                             trade_type = "buy"
@@ -181,25 +183,18 @@ class InsiderTradingScraperCloud:
                                 trade_type = "sell"
                             elif code in ["P", "M", "C", "A"]:
                                 trade_type = "buy"
-                            else:
-                                # unknown / other codes, you can decide; keep default 'buy'
-                                pass
 
-                            shares_raw = tx.get("transactionAmounts", {}) or {}
-                            shares_val = shares_raw.get("transactionShares", {}) or {}
-                            shares = shares_val.get("value")
-
-                            price_raw = shares_raw.get("transactionPricePerShare", {}) or {}
-                            price_per_share = price_raw.get("value")
+                            amounts = tx.get("transactionAmounts", {}) or {}
+                            shares_val = (amounts.get("transactionShares") or {}).get("value")
+                            price_val = (amounts.get("transactionPricePerShare") or {}).get("value")
 
                             total_val = None
                             try:
-                                if shares and price_per_share:
-                                    total_val = float(shares) * float(price_per_share)
+                                if shares_val and price_val:
+                                    total_val = float(shares_val) * float(price_val)
                             except Exception:
                                 total_val = None
 
-                            # Price impact
                             price_at_trade = None
                             pct_change = None
                             if price_hist is not None and not price_hist.empty and tx_date:
@@ -226,7 +221,7 @@ class InsiderTradingScraperCloud:
                                 "trader": owner_name[:50] if owner_name else "Unknown",
                                 "title": actor_role[:60],
                                 "trade_type": trade_type,
-                                "shares": str(shares) if shares is not None else "N/A",
+                                "shares": str(shares_val) if shares_val is not None else "N/A",
                                 "value": f"{total_val:.2f}" if isinstance(total_val, (int, float)) else "N/A",
                                 "filed_date": tx_date_str[:10] if tx_date_str else filed_date,
                                 "actor_type": actor_type,
