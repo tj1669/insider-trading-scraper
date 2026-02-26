@@ -28,7 +28,8 @@ EMAIL_CONFIG = {
 
 # API Ninjas CONFIG
 APININJAS_KEY = os.getenv('APININJAS_KEY', '')
-APININJAS_ENDPOINT = "https://api.api-ninjas.com/v1/insidertrading"  # [web:126]
+APININJAS_ENDPOINT = "https://api.api-ninjas.com/v1/insidertransactions"
+  # [web:126]
 
 
 class InsiderTradingScraperCloud:
@@ -471,3 +472,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
