@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 INSIDER TRADING SCRAPER - GITHUB ACTIONS VERSION WITH EMAIL REPORTS
-Uses sec-api.io Insider Trading API + yfinance for prices
+Uses API Ninjas Insider Trading API + yfinance for prices
 Looks back 90 days and computes price impact since trade
 ONLY REAL DATA - NO SAMPLE DATA
 """
@@ -26,9 +26,9 @@ EMAIL_CONFIG = {
     'smtp_port': 587
 }
 
-# SEC API CONFIG
-SECAPI_KEY = os.getenv('SECAPI_KEY', '')
-SECAPI_ENDPOINT = "https://api.sec-api.io/insider-trading"
+# API Ninjas CONFIG
+APININJAS_KEY = os.getenv('APININJAS_KEY', '')
+APININJAS_ENDPOINT = "https://api.api-ninjas.com/v1/insidertrading"  # [web:126]
 
 
 class InsiderTradingScraperCloud:
@@ -38,73 +38,51 @@ class InsiderTradingScraperCloud:
         self.trades = []
         self.timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S CET')
 
-    def fetch_insider_trades_last_90d_secapi(self):
+    def fetch_insider_trades_last_90d_apininjas(self):
         """
-        Fetch insider trades for last 90 days via sec-api.io Insider Trading API
-        using a broad string-based query (Form 3/4/5 + date range, NO ticker filter yet).
+        Fetch insider trades for last 90 days via API Ninjas Insider Trading API.
+        We loop over a small set of tickers and aggregate results.
+        Free tier: up to 10 results per request. [web:126]
         """
-        if not SECAPI_KEY:
-            print("❌ SECAPI_KEY not set. Skipping sec-api.io fetch.")
+        if not APININJAS_KEY:
+            print("❌ APININJAS_KEY not set. Skipping API Ninjas fetch.")
             return []
 
-        print("  Fetching insider trades (last 90 days) via sec-api.io...")
+        print("  Fetching insider trades (last 90 days) via API Ninjas...")
+
+        tickers = [
+            'NVDA', 'TSLA', 'MSFT', 'AAPL', 'GOOGL', 'META', 'AMZN',
+            'JPM', 'BAC', 'GS', 'IBM', 'INTC', 'AMD', 'NFLX', 'UBER'
+        ]
 
         today = datetime.utcnow().date()
         start_date = today - timedelta(days=90)
 
-        # Broad query: all Forms 3/4/5 over last 90 days (no ticker filter yet)
-        query_string = (
-            f"formType:(3 4 5) "
-            f"AND filedAt:[{start_date.strftime('%Y-%m-%d')} TO {today.strftime('%Y-%m-%d')}]"
-        )
-
-        payload = {
-            "query": query_string,
-            "from": 0,
-            "size": 50,  # sec-api.io size limit
-            "sort": [{"filedAt": {"order": "desc"}}]
-        }
-
         headers = {
-            "Authorization": SECAPI_KEY,
-            "Content-Type": "application/json"
+            "X-Api-Key": APININJAS_KEY
         }
-
-        try:
-            resp = requests.post(SECAPI_ENDPOINT, headers=headers, data=json.dumps(payload), timeout=25)
-            if resp.status_code != 200:
-                print(f"❌ sec-api.io returned {resp.status_code}: {resp.text[:200]}")
-                return []
-
-            data = resp.json()
-            filings = data.get("filings", [])
-            if not filings:
-                print("⚠️ sec-api.io: no filings returned for query")
-        except Exception as e:
-            print(f"❌ sec-api.io error: {e}")
-            return []
 
         all_trades = []
         price_cache = {}
 
-        for filing in filings:
+        for ticker in tickers:
             try:
-                issuer = filing.get("issuer", {}) or {}
-                reporting_owners = filing.get("reportingOwners", []) or []
-                non_deriv = filing.get("nonDerivativeTable", []) or []
-                deriv = filing.get("derivativeTable", []) or []
+                params = {
+                    "symbol": ticker,
+                    # API Ninjas uses 'start_date' and 'end_date' in YYYY-MM-DD format. [web:126]
+                    "start_date": start_date.strftime("%Y-%m-%d"),
+                    "end_date": today.strftime("%Y-%m-%d"),
+                    "limit": 10  # free tier max per request [web:126]
+                }
 
-                ticker = issuer.get("tradingSymbol") or issuer.get("ticker") or ""
-                if not ticker:
+                resp = requests.get(APININJAS_ENDPOINT, headers=headers, params=params, timeout=20)
+                if resp.status_code != 200:
+                    print(f"  ⚠️ API Ninjas {ticker} returned {resp.status_code}: {resp.text[:100]}")
                     continue
-                ticker = ticker.upper()
 
-                company_name = issuer.get("name") or issuer.get("issuerName") or ticker
-                filed_at = filing.get("filedAt") or filing.get("filingDate")
-                if filed_at:
-                    filed_date = filed_at[:10]
-                else:
-                    filed_date = ""
+                records = resp.json()
+                if not records:
+                    continue
 
                 # Prepare price history once per ticker
                 if ticker not in price_cache:
@@ -128,109 +106,102 @@ class InsiderTradingScraperCloud:
                     except Exception:
                         latest_close = None
 
-                for owner in reporting_owners:
-                    owner_name = (owner.get("name") or owner.get("reportingOwnerName") or "").strip()
-                    rel = owner.get("relationship", {}) or {}
+                # Each record from API Ninjas represents an insider trade. [web:126]
+                for rec in records:
+                    try:
+                        # Typical fields: symbol, name, relationship, transaction_date, transaction_type,
+                        # shares, price, total_value, etc. [web:126]
+                        symbol = rec.get("symbol") or ticker
+                        insider_name = (rec.get("name") or rec.get("insider") or "").strip()
+                        relationship = (rec.get("relationship") or "").strip()
+                        tx_date_str = rec.get("transaction_date") or rec.get("filing_date") or ""
+                        tx_type = (rec.get("transaction_type") or "").lower()
+                        shares = rec.get("shares")
+                        price = rec.get("price")
+                        total_val = rec.get("value") or rec.get("total_value")
 
-                    roles = []
-                    if rel.get("isDirector"):
-                        roles.append("Director")
-                    if rel.get("isOfficer"):
-                        roles.append("Officer")
-                    if rel.get("isTenPercentOwner"):
-                        roles.append("10% Owner")
-                    if rel.get("isOther"):
-                        roles.append("Other")
+                        trade_date = None
+                        if tx_date_str:
+                            try:
+                                trade_date = datetime.strptime(tx_date_str[:10], "%Y-%m-%d").date()
+                            except Exception:
+                                trade_date = None
 
-                    actor_role = ", ".join(roles) if roles else "Insider"
-                    actor_type = "insider"
+                        # classify trade type
+                        trade_type = "buy"
+                        if any(x in tx_type for x in ["sell", "sale", "s -"]):
+                            trade_type = "sell"
+                        elif any(x in tx_type for x in ["buy", "purchase", "acq"]):
+                            trade_type = "buy"
 
-                    other_text = str(rel.get("otherText") or "").lower()
-                    if any(x in other_text for x in ["senator", "rep.", "representative", "congress", "mp", "parliament"]):
-                        actor_type = "politician"
+                        # classify actor
+                        actor_type = "insider"
+                        actor_role = relationship or "Insider"
+                        lower_rel = relationship.lower()
+                        if any(x in lower_rel for x in ["senator", "rep.", "representative", "congress", "mp", "parliament"]):
+                            actor_type = "politician"
 
-                    all_tx_tables = []
-                    for entry in non_deriv:
-                        txs = entry.get("transactions", []) or []
-                        all_tx_tables.extend(txs)
-                    for entry in deriv:
-                        txs = entry.get("transactions", []) or []
-                        all_tx_tables.extend(txs)
+                        # impact
+                        price_at_trade = None
+                        pct_change = None
+                        if price is not None:
+                            try:
+                                price_at_trade = float(price)
+                            except Exception:
+                                price_at_trade = None
 
-                    if not all_tx_tables:
+                        # if API didn't give price, derive from price history
+                        if price_at_trade is None and price_hist is not None and not price_hist.empty and trade_date:
+                            try:
+                                ph = price_hist[price_hist.index.date >= trade_date]
+                                if not ph.empty:
+                                    price_at_trade = float(ph["Close"].iloc[0])
+                            except Exception:
+                                price_at_trade = None
+
+                        if latest_close and price_at_trade and price_at_trade > 0:
+                            try:
+                                pct_change = round(
+                                    (latest_close - price_at_trade) / price_at_trade * 100,
+                                    2
+                                )
+                            except Exception:
+                                pct_change = None
+
+                        # normalize total value
+                        if isinstance(total_val, (int, float)):
+                            total_val_str = f"{float(total_val):.2f}"
+                        else:
+                            try:
+                                total_val_str = f"{float(total_val):.2f}"
+                            except Exception:
+                                total_val_str = "N/A"
+
+                        all_trades.append({
+                            "source": "api-ninjas",
+                            "ticker": symbol.upper(),
+                            "company_name": symbol.upper(),
+                            "trader": insider_name[:50] if insider_name else "Unknown",
+                            "title": actor_role[:60],
+                            "trade_type": trade_type,
+                            "shares": str(shares) if shares is not None else "N/A",
+                            "value": total_val_str,
+                            "filed_date": tx_date_str[:10] if tx_date_str else "",
+                            "actor_type": actor_type,
+                            "actor_role": actor_role,
+                            "price_at_trade": price_at_trade,
+                            "current_price": latest_close,
+                            "pct_change_since_trade": pct_change,
+                        })
+                    except Exception as e:
+                        print(f"  ⚠️ error parsing API Ninjas record for {ticker}: {e}")
                         continue
 
-                    for tx in all_tx_tables:
-                        try:
-                            tx_date_raw = tx.get("transactionDate", {}) or {}
-                            tx_date_str = tx_date_raw.get("value") or filed_date
-                            tx_date = None
-                            if tx_date_str:
-                                tx_date = datetime.strptime(tx_date_str[:10], "%Y-%m-%d").date()
-
-                            code_raw = tx.get("transactionCoding", {}) or {}
-                            code = (code_raw.get("transactionCode") or "").upper()
-                            trade_type = "buy"
-                            if code in ["S", "SD", "SE", "SS", "S*"]:
-                                trade_type = "sell"
-                            elif code in ["P", "M", "C", "A"]:
-                                trade_type = "buy"
-
-                            amounts = tx.get("transactionAmounts", {}) or {}
-                            shares_val = (amounts.get("transactionShares") or {}).get("value")
-                            price_val = (amounts.get("transactionPricePerShare") or {}).get("value")
-
-                            total_val = None
-                            try:
-                                if shares_val and price_val:
-                                    total_val = float(shares_val) * float(price_val)
-                            except Exception:
-                                total_val = None
-
-                            price_at_trade = None
-                            pct_change = None
-                            if price_hist is not None and not price_hist.empty and tx_date:
-                                try:
-                                    ph = price_hist[price_hist.index.date >= tx_date]
-                                    if not ph.empty:
-                                        price_at_trade = float(ph["Close"].iloc[0])
-                                except Exception:
-                                    price_at_trade = None
-
-                            if latest_close and price_at_trade and price_at_trade > 0:
-                                try:
-                                    pct_change = round(
-                                        (latest_close - price_at_trade) / price_at_trade * 100,
-                                        2
-                                    )
-                                except Exception:
-                                    pct_change = None
-
-                            all_trades.append({
-                                "source": "sec-api.io",
-                                "ticker": ticker,
-                                "company_name": company_name,
-                                "trader": owner_name[:50] if owner_name else "Unknown",
-                                "title": actor_role[:60],
-                                "trade_type": trade_type,
-                                "shares": str(shares_val) if shares_val is not None else "N/A",
-                                "value": f"{total_val:.2f}" if isinstance(total_val, (int, float)) else "N/A",
-                                "filed_date": tx_date_str[:10] if tx_date_str else filed_date,
-                                "actor_type": actor_type,
-                                "actor_role": actor_role,
-                                "price_at_trade": price_at_trade,
-                                "current_price": latest_close,
-                                "pct_change_since_trade": pct_change,
-                            })
-                        except Exception as e:
-                            print(f"  ⚠️ error parsing transaction for {ticker}: {e}")
-                            continue
-
             except Exception as e:
-                print(f"  ⚠️ error parsing filing: {e}")
+                print(f"  ⚠️ API Ninjas error for {ticker}: {e}")
                 continue
 
-        print(f"✅ Collected {len(all_trades)} trades from last 90 days via sec-api.io")
+        print(f"✅ Collected {len(all_trades)} trades from last 90 days via API Ninjas")
         return all_trades
 
     def save_trades(self, trades):
@@ -307,13 +278,13 @@ class InsiderTradingScraperCloud:
                         <strong>Total Trades:</strong> {len(trades)}
                     </div>
                     <div class="stat-box">
-                        <strong>Sources:</strong> sec-api.io (SEC Forms 3/4/5) + yfinance prices
+                        <strong>Sources:</strong> API Ninjas (insidertrading) + yfinance prices
                     </div>
                 </div>
                 
                 <div class="warning">
                     <strong>⚠️ Disclaimer:</strong> This is educational information only. Not investment advice. 
-                    All data is from public SEC filings and public market data. Always do your own research and consult a financial advisor.
+                    All data is from public filings and public market data. Always do your own research and consult a financial advisor.
                 </div>
         """
 
@@ -321,8 +292,8 @@ class InsiderTradingScraperCloud:
             html_content += """
                 <div class="no-data">
                     <h3>⚠️ NO REAL DATA AVAILABLE FOR LAST 90 DAYS</h3>
-                    <p>sec-api.io did not return insider trading data in the last 90 days.</p>
-                    <p>This can be due to API limits, processing delays, or other restrictions.</p>
+                    <p>The API Ninjas Insider Trading API did not return trades for your ticker universe in the last 90 days.</p>
+                    <p>This can be due to API limits, symbol coverage, or simply no qualifying trades.</p>
                     <p><strong>No action taken. Please check again later.</strong></p>
                 </div>
             """
@@ -428,7 +399,7 @@ class InsiderTradingScraperCloud:
         html_content += """
                 <div class="footer">
                     <p>Report generated automatically by Insider Trading Scraper (GitHub Actions).</p>
-                    <p>Data sources: sec-api.io (SEC Forms 3/4/5), yfinance price history.</p>
+                    <p>Data sources: API Ninjas Insider Trading API, yfinance price history.</p>
                     <p>Raw data available in: data/insider_trades_data.json (in your GitHub repo).</p>
                 </div>
             </div>
@@ -471,12 +442,12 @@ class InsiderTradingScraperCloud:
         print(f"🌐 INSIDER TRADING SCRAPE - {self.timestamp}")
         print("=" * 80)
 
-        print("\n📥 Fetching insider trading data (last 90 days) from sec-api.io...")
+        print("\n📥 Fetching insider trading data (last 90 days) from API Ninjas...")
 
-        trades = self.fetch_insider_trades_last_90d_secapi()
+        trades = self.fetch_insider_trades_last_90d_apininjas()
 
         if len(trades) == 0:
-            print("\n⚠️ No real data returned from sec-api.io for last 90 days")
+            print("\n⚠️ No real data returned from API Ninjas for last 90 days")
 
         saved_trades = self.save_trades(trades)
 
