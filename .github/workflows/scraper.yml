@@ -27,6 +27,6 @@ jobs:
           SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
           SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
-          SECAPI_KEY: ${{ secrets.SECAPI_KEY }}
+          APININJAS_KEY: ${{ secrets.APININJAS_KEY }}
         run: |
           python3 scraper_cloud.py
