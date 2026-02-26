@@ -2,7 +2,7 @@
 """
 INSIDER TRADING SCRAPER - GITHUB ACTIONS VERSION WITH EMAIL REPORTS
 Uses yfinance insider_transactions + SEC fallback
-Looks back 10 days and computes price impact since trade
+Looks back 90 days and computes price impact since trade
 ONLY REAL DATA - NO SAMPLE DATA
 """
 
@@ -40,9 +40,9 @@ class InsiderTradingScraperCloud:
         self.trades = []
         self.timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S CET')
 
-    def fetch_insider_trades_last_10d(self):
-        """Use yfinance insider_transactions + price history for last 10 days."""
-        print("  Fetching insider trades (last 10 days) via yfinance...")
+    def fetch_insider_trades_last_90d(self):
+        """Use yfinance insider_transactions + price history for last 90 days."""
+        print("  Fetching insider trades (last 90 days) via yfinance...")
 
         tickers = [
             'NVDA', 'TSLA', 'MSFT', 'AAPL', 'GOOGL', 'META', 'AMZN',
@@ -51,7 +51,7 @@ class InsiderTradingScraperCloud:
 
         all_trades = []
         today = datetime.utcnow().date()
-        start_date = today - timedelta(days=10)
+        start_date = today - timedelta(days=90)
 
         for ticker in tickers:
             try:
@@ -66,7 +66,7 @@ class InsiderTradingScraperCloud:
 
                 df = df.dropna(subset=[df.index.name])
 
-                # Filter to last 10 days
+                # Filter to last 90 days
                 df = df[(df.index.date >= start_date) & (df.index.date <= today)]
                 if df.empty:
                     continue
@@ -143,7 +143,7 @@ class InsiderTradingScraperCloud:
                 print(f"  ⚠️ yfinance error for {ticker}: {e}")
                 continue
 
-        print(f"✅ Collected {len(all_trades)} trades from last 10 days via yfinance")
+        print(f"✅ Collected {len(all_trades)} trades from last 90 days via yfinance")
         return all_trades
 
     def fetch_sec_filings_alternative(self):
@@ -162,7 +162,7 @@ class InsiderTradingScraperCloud:
             trades = []
 
             filings = data.get('filings', [])
-            for filing in filings[:20]:
+            for filing in filings[:40]:
                 trade = {
                     'source': 'SEC EDGAR',
                     'ticker': (filing.get('ticker') or 'N/A').upper(),
@@ -255,7 +255,7 @@ class InsiderTradingScraperCloud:
         </head>
         <body>
             <div class="container">
-                <h1>📊 Insider Trading Report (Last 10 Days)</h1>
+                <h1>📊 Insider Trading Report (Last 90 Days)</h1>
                 <p><strong>Report Date:</strong> {self.timestamp}</p>
                 
                 <div class="stats">
@@ -282,10 +282,10 @@ class InsiderTradingScraperCloud:
         if not trades or len(trades) == 0:
             html_content += """
                 <div class="no-data">
-                    <h3>⚠️ NO REAL DATA AVAILABLE FOR LAST 10 DAYS</h3>
-                    <p>Public APIs (yfinance / SEC EDGAR) did not return insider trading data for your ticker universe in the last 10 days.</p>
+                    <h3>⚠️ NO REAL DATA AVAILABLE FOR LAST 90 DAYS</h3>
+                    <p>Public APIs (yfinance / SEC EDGAR) did not return insider trading data for your ticker universe in the last 90 days.</p>
                     <p>This can be due to API limits, processing delays, or simply no qualifying insider trades.</p>
-                    <p><strong>No action taken. Please check again tomorrow.</strong></p>
+                    <p><strong>No action taken. Please check again later.</strong></p>
                 </div>
             """
         else:
@@ -300,7 +300,7 @@ class InsiderTradingScraperCloud:
                     "<th>Price @ Trade</th><th>Current</th><th>% Since Trade</th>"
                     "<th>Date</th></tr>"
                 )
-                for trade in buy_trades[:50]:
+                for trade in buy_trades[:100]:
                     ticker = trade.get('ticker', 'N/A')
                     company = trade.get('company_name', 'N/A')[:30]
                     trader = trade.get('trader', 'N/A')[:25]
@@ -349,7 +349,7 @@ class InsiderTradingScraperCloud:
                     "<th>Price @ Trade</th><th>Current</th><th>% Since Trade</th>"
                     "<th>Date</th></tr>"
                 )
-                for trade in sell_trades[:50]:
+                for trade in sell_trades[:100]:
                     ticker = trade.get('ticker', 'N/A')
                     company = trade.get('company_name', 'N/A')[:30]
                     trader = trade.get('trader', 'N/A')[:25]
@@ -433,9 +433,9 @@ class InsiderTradingScraperCloud:
         print(f"🌐 INSIDER TRADING SCRAPE - {self.timestamp}")
         print("=" * 80)
 
-        print("\n📥 Fetching insider trading data (last 10 days)...")
+        print("\n📥 Fetching insider trading data (last 90 days)...")
 
-        trades = self.fetch_insider_trades_last_10d()
+        trades = self.fetch_insider_trades_last_90d()
 
         if len(trades) < 5:
             print("\n📥 Adding SEC EDGAR filings (fallback)...")
@@ -443,7 +443,7 @@ class InsiderTradingScraperCloud:
             trades.extend(sec_trades)
 
         if len(trades) == 0:
-            print("\n⚠️ No real data available from APIs for last 10 days")
+            print("\n⚠️ No real data available from APIs for last 90 days")
 
         saved_trades = self.save_trades(trades)
 
