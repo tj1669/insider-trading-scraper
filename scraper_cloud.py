@@ -14,7 +14,7 @@ import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
 from pathlib import Path
-from email.mime.text import MIMEText
+from email.mime_text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 # EMAIL CONFIGURATION (Use environment variables)
@@ -41,7 +41,7 @@ class InsiderTradingScraperCloud:
     def fetch_insider_trades_last_90d_secapi(self):
         """
         Fetch insider trades for last 90 days via sec-api.io Insider Trading API
-        using string-based query (Form 3/4/5 + ticker filter + date range).
+        using a broad string-based query (Form 3/4/5 + date range, NO ticker filter yet).
         """
         if not SECAPI_KEY:
             print("❌ SECAPI_KEY not set. Skipping sec-api.io fetch.")
@@ -49,27 +49,19 @@ class InsiderTradingScraperCloud:
 
         print("  Fetching insider trades (last 90 days) via sec-api.io...")
 
-        tickers = [
-            'NVDA', 'TSLA', 'MSFT', 'AAPL', 'GOOGL', 'META', 'AMZN',
-            'JPM', 'BAC', 'GS', 'IBM', 'INTC', 'AMD', 'NFLX', 'UBER'
-        ]
-
         today = datetime.utcnow().date()
         start_date = today - timedelta(days=90)
 
-        # Build a sec-api.io query string:
-        # Example pattern: formType:(3 4 5) AND filedAt:[YYYY-MM-DD TO YYYY-MM-DD] AND issuer.tradingSymbol:(NVDA TSLA ...)
-        ticker_clause = " ".join(tickers)
+        # Broad query: all Forms 3/4/5 over last 90 days (no ticker filter yet)
         query_string = (
             f"formType:(3 4 5) "
-            f"AND filedAt:[{start_date.strftime('%Y-%m-%d')} TO {today.strftime('%Y-%m-%d')}] "
-            f"AND issuer.tradingSymbol:({ticker_clause})"
+            f"AND filedAt:[{start_date.strftime('%Y-%m-%d')} TO {today.strftime('%Y-%m-%d')}]"
         )
 
         payload = {
             "query": query_string,
             "from": 0,
-            "size": 50,
+            "size": 50,  # sec-api.io size limit
             "sort": [{"filedAt": {"order": "desc"}}]
         }
 
@@ -329,8 +321,8 @@ class InsiderTradingScraperCloud:
             html_content += """
                 <div class="no-data">
                     <h3>⚠️ NO REAL DATA AVAILABLE FOR LAST 90 DAYS</h3>
-                    <p>sec-api.io did not return insider trading data for your ticker universe in the last 90 days.</p>
-                    <p>This can be due to API limits, processing delays, or simply no qualifying insider trades.</p>
+                    <p>sec-api.io did not return insider trading data in the last 90 days.</p>
+                    <p>This can be due to API limits, processing delays, or other restrictions.</p>
                     <p><strong>No action taken. Please check again later.</strong></p>
                 </div>
             """
@@ -508,4 +500,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
