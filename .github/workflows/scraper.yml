@@ -29,3 +29,7 @@ jobs:
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
         run: |
           python3 ./scraper_cloud.py
+
+       - name: Install dependencies
+        run: |
+          pip install requests beautifulsoup4 yfinance pandas
