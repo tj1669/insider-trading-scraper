@@ -21,12 +21,13 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests beautifulsoup4 yfinance pandas
+          pip install requests yfinance pandas
 
       - name: Run scraper
         env:
           SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
           SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          SECAPI_KEY: ${{ secrets.SECAPI_KEY }}
         run: |
           python3 scraper_cloud.py
