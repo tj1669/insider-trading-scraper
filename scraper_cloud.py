@@ -69,7 +69,7 @@ class InsiderTradingScraperCloud:
         payload = {
             "query": query_string,
             "from": 0,
-            "size": 200,
+            "size": 50,
             "sort": [{"filedAt": {"order": "desc"}}]
         }
 
@@ -508,3 +508,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
